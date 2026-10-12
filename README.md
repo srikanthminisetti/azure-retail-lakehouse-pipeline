@@ -309,7 +309,7 @@ These are observations about a historical, partly simulated dataset; they descri
 │   ├── architecture.png        # rendered diagram
 │   ├── architecture.svg
 │   ├── architecture.mmd        # Mermaid source
-│   └── make_diagram.py         # regenerates the PNG/SVG
+│   └── make_diagram.py         # Generates the PNG/SVG
 ├── notebooks/
 │   ├── nb_01_bronze_ingestion.ipynb
 │   ├── nb_02_silver_transformation.ipynb
@@ -322,7 +322,7 @@ These are observations about a historical, partly simulated dataset; they descri
 │   ├── validation_results.md
 │   └── sql_analytics.md
 ├── screenshots/
-│   └── sql_q1_headline_kpis.png
+│   
 └── data/                       # git-ignored (raw and generated data are never committed)
     └── .gitkeep
 ```
