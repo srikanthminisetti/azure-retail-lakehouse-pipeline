@@ -1,11 +1,4 @@
 /* =====================================================================================
-   Gold analytics queries  -  T-SQL for the Fabric Lakehouse SQL analytics endpoint
-   Source: the gold_* tables created by nb_03_silver_to_gold (read-only; nothing is modified).
-
-   How to run: Lakehouse > switch to "SQL analytics endpoint" > New SQL query > paste a query
-   (or select ONE query at a time) > Run.  If the gold_* tables are not listed yet, click
-   Refresh in the Explorer toolbar (the endpoint syncs the lakehouse metadata with a short delay).
-
    Conventions
    - Revenue orders exclude canceled and unavailable orders; GMV = sum of item price (freight separate).
    - Boolean Gold columns appear as bit in the endpoint, so filters use = 1 / = 0.
