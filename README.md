@@ -1,8 +1,8 @@
 # End-to-End Retail Data Engineering Pipeline on Azure and Microsoft Fabric
 
-A batch data-engineering project that takes the public **Olist Brazilian e-commerce dataset**, delivers it as simulated monthly source batches, moves it with **Azure Data Factory** into **ADLS Gen2**, and transforms it in a **Microsoft Fabric Lakehouse** with **PySpark and Delta tables** through a Bronze → Silver → Gold design. Invalid records are quarantined with their reasons, every layer is reconciled against an independent manifest, and the Gold layer is a validated star schema with five analytics tables.
+A batch data-engineering project that takes the public **Olist Brazilian e-commerce dataset**, delivers it as simulated monthly source batches, moves it with **Azure Data Factory** into **ADLS Gen2**, and transforms it in a **Microsoft Fabric Lakehouse** with **PySpark and Delta tables** through a Bronze → Silver → Gold design. Invalid records are quarantined with their reasons, every layer is reconciled against an independent manifest, and the Gold layer is a validated star schema with five analytics tables that are queried with T-SQL on the Fabric SQL analytics endpoint.
 
-> **Status:** ingestion, Bronze, Silver, Gold and their validation are implemented and were executed successfully (results in [`docs/validation_results.md`](docs/validation_results.md)). SQL analytics queries and a Power BI report are **planned and not yet built**. See [Known limitations](#18-known-limitations).
+> **Status:** ingestion, Bronze, Silver, Gold and their validation are implemented and were executed successfully (results in [`docs/validation_results.md`](docs/validation_results.md)). **SQL analytics** (T-SQL queries on the Fabric SQL analytics endpoint) is implemented and executed (results in [`docs/sql_analytics.md`](docs/sql_analytics.md)). A **Power BI report is the next step and is not yet built**. See [Known limitations](#19-known-limitations).
 
 ---
 
@@ -19,14 +19,15 @@ A batch data-engineering project that takes the public **Olist Brazilian e-comme
 10. [Data quality and quarantine](#10-data-quality-and-quarantine)
 11. [Business definitions and KPI logic](#11-business-definitions-and-kpi-logic)
 12. [Validation and testing](#12-validation-and-testing)
-13. [Repository structure](#13-repository-structure)
-14. [Setup and execution](#14-setup-and-execution)
-15. [Azure configuration prerequisites](#15-azure-configuration-prerequisites)
-16. [Security and cost](#16-security-and-cost)
-17. [Resume-ready description](#17-resume-ready-description)
-18. [Known limitations](#18-known-limitations)
-19. [Future improvements](#19-future-improvements)
-20. [References](#20-references)
+13. [SQL analytics and key findings](#13-sql-analytics-and-key-findings)
+14. [Repository structure](#14-repository-structure)
+15. [Setup and execution](#15-setup-and-execution)
+16. [Azure configuration prerequisites](#16-azure-configuration-prerequisites)
+17. [Security and cost](#17-security-and-cost)
+18. [Resume-ready description](#18-resume-ready-description)
+19. [Known limitations](#19-known-limitations)
+20. [Future improvements](#20-future-improvements)
+21. [References](#21-references)
 
 ---
 
@@ -50,6 +51,7 @@ The raw exports cannot answer these reliably. Orders arrive more than once as th
 - **Bronze** – nine managed Delta tables holding raw string values plus lineage columns; row and file counts validated against the manifest.
 - **Silver** – one reusable PySpark function applies type conversion, business-rule validation, quarantine, de-duplication on explicit business keys and row-count reconciliation to nine tables.
 - **Gold** – four dimensions, two facts and five analytics tables with a stated grain each, built without join multiplication and checked by 19 assertions.
+- **SQL analytics** – a set of twelve T-SQL queries (CTEs, window functions, conditional aggregation, fact-to-dimension joins); Q1–Q11 were executed on the Lakehouse SQL analytics endpoint and answer business questions on sales trend, categories, payments, repeat customers, delivery and reviews.
 - **Honest documentation** – implemented features, simulated parts and limitations are stated separately.
 
 ## 3. Architecture overview
@@ -65,12 +67,13 @@ Data physically lives in two different places, and the diagram below shows both:
 | 5 | Notebook 01 – Bronze | `Files/retail/source/…` through the shortcut | `bronze_*` tables | Lakehouse **Tables** (OneLake) |
 | 6 | Notebook 02 – Silver | `bronze_*` tables | `silver_*`, `quarantine_*` tables | Lakehouse **Tables** (OneLake) |
 | 7 | Notebook 03 – Gold | `silver_*` tables | `gold_*` tables | Lakehouse **Tables** (OneLake) |
-| 8 | SQL analytics / Power BI | `gold_*` tables | – | *Planned, not yet configured* |
+| 8 | SQL analytics endpoint (T-SQL queries) | `gold_*` tables | query results only (read-only; nothing is copied or modified) | Lakehouse SQL analytics endpoint |
+| 9 | Power BI report | `gold_*` tables | – | *Next step, not yet built* |
 
 Two points matter for accuracy:
 
 - **The storage directories and the Delta tables are different things.** The `bronze/` directory in ADLS is a file landing area filled by Azure Data Factory. The `bronze_*`, `silver_*` and `gold_*` tables are managed Delta tables created by the Fabric notebooks inside the Lakehouse. The notebooks do not write to the `silver/`, `gold/`, `ops/` or `serving/` directories.
-- **Notebook 01 reads the `source/` area through the shortcut, not the ADF-created `bronze/` copy.** Ingestion (ADF) and transformation (Fabric notebooks) are separate steps; ADF does not run the notebooks, which are executed manually in order. See [Known limitations](#18-known-limitations).
+- **Notebook 01 reads the `source/` area through the shortcut, not the ADF-created `bronze/` copy.** Ingestion (ADF) and transformation (Fabric notebooks) are separate steps; ADF does not run the notebooks, which are executed manually in order. See [Known limitations](#19-known-limitations).
 
 ## 4. Architecture diagram
 
@@ -104,26 +107,30 @@ flowchart TB
         SC --> N1 --> T1 --> N2 --> T2 --> N3 --> T3
     end
 
-    SQL["SQL analytics / Power BI<br/>planned, not yet configured"]
+    SQL["SQL analytics endpoint (T-SQL)<br/>read-only queries Q1-Q11 on gold_*"]
+    PBI["Power BI report<br/>next step, not yet built"]
 
     M -->|"upload"| S
     S --> ADF
     ADF -->|"Copy Data"| B
     S -->|"read via shortcut"| SC
-    T3 -.-> SQL
+    T3 --> SQL
+    SQL -.-> PBI
 
     classDef storage fill:#FFE8CC,stroke:#D9822B,color:#1F2933;
     classDef adf fill:#D5F2EE,stroke:#1F9D8F,color:#1F2933;
     classDef compute fill:#D6E6FF,stroke:#2F6FD0,color:#1F2933;
     classDef tables fill:#DDF3DD,stroke:#3E9B4F,color:#1F2933;
     classDef link fill:#EBDDFB,stroke:#8A4FD0,color:#1F2933;
+    classDef sql fill:#FFF3C4,stroke:#C99A00,color:#1F2933;
     classDef planned fill:#F3F3F3,stroke:#8C8C8C,color:#555555,stroke-dasharray: 5 3;
     class S,B,X storage;
     class ADF adf;
     class N1,N2,N3 compute;
     class T1,T2,T3 tables;
     class SC link;
-    class SQL planned;
+    class SQL sql;
+    class PBI planned;
 ```
 
 ## 5. Technology stack
@@ -136,7 +143,8 @@ flowchart TB
 | Microsoft Fabric Lakehouse / OneLake | Hosts the shortcut to ADLS and the managed Delta tables |
 | Fabric notebooks, PySpark | All Bronze, Silver and Gold transformations and validation |
 | Delta Lake (managed tables) | Storage format of every `bronze_*`, `silver_*`, `quarantine_*` and `gold_*` table |
-| SQL analytics endpoint, Power BI | **Planned** – not yet configured |
+| Fabric SQL analytics endpoint (T-SQL) | Read-only SQL over the Gold Delta tables; runs the analytics queries in `sql/` |
+| Power BI | **Next step** – not yet built |
 
 ## 6. Dataset source and attribution
 
@@ -261,13 +269,37 @@ Category review scores and late-delivery rates are **item-weighted** averages of
 |---|---|---|
 | Bronze | Row count, source-file count and batch date per table vs. `manifest.json` | 9 of 9 tables match (103 files, 1,591,765 rows) |
 | Silver | `Bronze = Silver + quarantined + removed`; unique business keys; Silver counts and quarantine counts vs. manifest | 9 of 9 tables reconcile |
+| SQL analytics | Q1 and Q2–Q11 executed on the SQL analytics endpoint; Q1 totals and the sums of Q5 (payments) and Q7 (revenue) equal the Gold validation totals | consistent (see [section 13](#13-sql-analytics-and-key-findings)) |
 | Gold | Grain row counts, key uniqueness, total price / payments vs. Silver, analytics totals vs. facts, dimension coverage | **19 of 19 checks pass** |
 
 Highlights: `gold_fact_orders` has exactly 99,441 rows and `gold_fact_order_items` exactly 112,650 (no row multiplication or loss), and GMV of 13,494,400.74 is identical in the item fact, daily sales, category sales and customer summary.
 
 Gold also reports **data observations** that are deliberately not forced to a value, for example 249 orders where payments differ from items + freight by more than 1.00. Full tables: [`docs/validation_results.md`](docs/validation_results.md).
 
-## 13. Repository structure
+## 13. SQL analytics and key findings
+
+Twelve T-SQL queries (`sql/gold_analytics_queries.sql`) were written for the Lakehouse **SQL analytics endpoint**, a read-only T-SQL surface over the Gold Delta tables (nothing is copied or modified). Queries **Q1–Q11 were executed** and their outputs are recorded in [`docs/sql_analytics.md`](docs/sql_analytics.md). Q0, a row-count sanity query, is part of the file; its output was not recorded.
+
+![Q1 headline KPIs on the SQL analytics endpoint](screenshots/sql_q1_headline_kpis.png)
+
+| Query | Business question | Result |
+|---|---|---|
+| Q1 | Headline KPIs | GMV 13,494,400.74; freight 2,241,126.29; 98,199 revenue orders; 94,983 customers; average order value 137.42; 96,470 delivered orders; **93.23% delivered on time** |
+| Q2 | Monthly sales trend | GMV grew from 120,098.27 (Jan 2017) to a peak of 1,003,862.14 in Nov 2017 (+52.1% on Oct), fell 26.1% in Dec 2017, then stayed around 0.85–1.0 million per month in Jan–Aug 2018 |
+| Q3 / Q4 | Top categories and concentration | `health_beauty` (9.31%), `watches_gifts` (8.88%) and `bed_bath_table` (7.68%) lead; **18 of 74 categories (24%) generate 81.26% of revenue** |
+| Q5 | Payment mix | Credit card 78.47% of payment value (3.51 instalments on average), boleto 17.96%, voucher 2.22%, debit card 1.35% |
+| Q6 | Repeat customers | Only **2,887 of 94,983 customers (3.04%)** order more than once; they account for 5.56% of revenue |
+| Q7 | Recency | 10.0% of customers bought in the last 90 days of the data; 29.4% last bought more than 365 days earlier |
+| Q8 | Weakest states for delivery | `MA` is lowest at 82.57% on time (717 delivered orders), then `CE` 86.24%, `BA` 87.84%, `RJ` 87.89% (12,350 delivered orders) |
+| Q9 | Lateness vs. reviews | Average review score falls from 4.32 (8+ days early) to **1.70 (8+ days late)**; the share of low scores (1–2) rises from 8.97% to 79.29% |
+| Q10 | On-time trend | Dips to 87.60% (Nov 2017), 85.87% (Feb 2018) and 81.04% (Mar 2018); other months range from 92.5% to 99.3% |
+| Q11 | Top sellers | The top seller has 229,237.63 GMV from 1,131 orders; the top 10 sellers make up about 13.2% of GMV and 9 of them are in `SP` |
+
+Cross-checks between independent outputs: Q5 payment values sum to 15,739,137.01, and Q2 monthly GMV and Q7 segment revenue each sum to 13,494,400.74, the same totals as the Gold validation checks.
+
+These are observations about a historical, partly simulated dataset; they describe the data and do not establish causes. Recency is measured from the last order date in the data, and review scores are the latest review per order.
+
+## 14. Repository structure
 
 ```
 .
@@ -284,14 +316,18 @@ Gold also reports **data observations** that are deliberately not forced to a va
 │   └── nb_03_silver_to_gold.ipynb
 ├── scripts/
 │   └── prepare_olist_batches.py
+├── sql/
+│   └── gold_analytics_queries.sql
 ├── docs/
-│   └── validation_results.md
+│   ├── validation_results.md
+│   └── sql_analytics.md
 ├── screenshots/
+│   └── sql_q1_headline_kpis.png
 └── data/                       # git-ignored (raw and generated data are never committed)
     └── .gitkeep
 ```
 
-## 14. Setup and execution
+## 15. Setup and execution
 
 **Local preparation**
 ```bash
@@ -308,8 +344,9 @@ The script prints the expected counts and writes `data/source/manifest.json`.
 3. Create the Lakehouse shortcut named `retail` to the container, so `Files/retail/source/manifest.json` exists.
 4. Import the three notebooks into the Fabric workspace and attach your Lakehouse as the default Lakehouse.
 5. Run `nb_01_bronze_ingestion`, then `nb_02_silver_transformation`, then `nb_03_silver_to_gold`. Each notebook ends with a validation step that stops on failure.
+6. Open the Lakehouse **SQL analytics endpoint** (click Refresh if the `gold_*` tables are not listed yet) and run the queries in `sql/gold_analytics_queries.sql` one at a time, starting with Q0.
 
-## 15. Azure configuration prerequisites
+## 16. Azure configuration prerequisites
 
 You must create and configure your own resources; no identifiers or credentials are included here.
 
@@ -318,22 +355,23 @@ You must create and configure your own resources; no identifiers or credentials 
 - An **Azure Data Factory** instance with a linked service to the storage account. The managed-identity approach needs a role assignment that lets the factory's identity read and write the container's data.
 - A **Microsoft Fabric** workspace on a Fabric capacity, a Lakehouse, and an ADLS Gen2 **shortcut** to the container. ADLS shortcuts use a delegated credential that you configure when creating the shortcut.
 
-## 16. Security and cost
+## 17. Security and cost
 
 - **No secrets in the repo.** Credentials, keys and connection strings are never stored in code or notebooks; `.gitignore` excludes data files, key files and environment files. Notebook metadata was stripped of workspace and Lakehouse identifiers before publishing.
 - **Managed identity** is used for Azure Data Factory to storage access, so no storage key is needed in the pipeline. Grant only the access that is required.
 - **Shortcut access** is authorized through the credential chosen when the shortcut was created; use an account with the minimum needed permissions on the container.
 - **Cost.** ADLS storage, Data Factory runs and Fabric capacity consumption are billed to your subscription. This project was built on a limited promotional credit. Pause or remove the Fabric capacity and delete the resource group when you are not using it, and set a budget alert.
 
-## 17. Resume-ready description
+## 18. Resume-ready description
 
 **End-to-End Retail Data Engineering Pipeline – Azure Data Factory, ADLS Gen2, Microsoft Fabric (PySpark, Delta Lake)**
 - Built a batch pipeline for the Olist e-commerce dataset (about 1.6 million source rows, 9 tables, 103 monthly batch files): Python batch-preparation script with a reconciliation manifest, Azure Data Factory Copy Data pipeline into ADLS Gen2, and Fabric Lakehouse notebooks implementing a Bronze, Silver and Gold design on Delta tables.
 - Wrote a reusable PySpark Silver framework that applies type conversion, business-rule validation, de-duplication on explicit business keys and quarantine of invalid records with rejection reasons; reconciled Bronze = Silver + quarantined + removed for all nine tables against the manifest.
 - Diagnosed and fixed data-modelling defects found during validation: multi-line review CSV parsing (105,225 vs. 100,236 rows) and a de-duplication key that deleted 814 valid reviews (corrected to a composite key).
+- Wrote and ran 11 analytical T-SQL queries on the Fabric SQL analytics endpoint (CTEs, window functions such as `LAG`, `RANK` and running totals, conditional aggregation, fact-to-dimension joins), covering sales trend, category concentration, payment mix, repeat customers, delivery performance and its effect on review scores; reconciled query totals with the Gold validation checks.
 - Designed an 11-table Gold layer (4 dimensions, 2 facts, 5 analytics tables) with explicit grain, order-level pre-aggregation to prevent join multiplication, and 19 automated checks reconciling GMV, payments and row counts across tables.
 
-## 18. Known limitations
+## 19. Known limitations
 
 - **Simulated source.** The data is a static public dataset. Monthly batches, duplicates, status updates and bad rows are generated by the preparation script; they are not behaviours of a real upstream system.
 - **Two parallel copies of the source.** Azure Data Factory copies `source/` to `bronze/`, but Notebook 01 reads `source/` through the shortcut. The ADF `bronze/` landing copy is therefore not consumed by the notebooks.
@@ -342,21 +380,24 @@ You must create and configure your own resources; no identifiers or credentials 
 - **Storage directories unused by notebooks.** `silver/`, `gold/`, `ops/` and `serving/` exist in the container but the notebooks write managed Delta tables in the Lakehouse instead.
 - **Quarantine results are partly by construction.** The planted bad rows are detectable by design.
 - **Item-weighted category averages** and the 249 orders whose payments differ from items + freight are reported, not corrected.
-- **Reporting layer not built.** No SQL analytics queries, semantic model or Power BI report are included yet.
+- **No Power BI report or semantic model yet.** SQL analytics results exist as query outputs only. The Q0 sanity query's output was not recorded.
+- **Queries are one-off analyses.** They are not saved as views, scheduled, or exposed through a semantic model.
 
-## 19. Future improvements
+## 20. Future improvements
 
 *(Not implemented.)*
 - Make Notebook 01 read the ADF `bronze/` landing area so ingestion and transformation form a single chain.
 - Orchestrate the three notebooks after the copy with a pipeline and add a schedule.
 - Incremental processing with a watermark and Delta `MERGE`, and an operational log table for run metrics.
-- SQL analytics queries on the Lakehouse SQL endpoint and a Power BI report on the Gold tables.
+- A Power BI report and semantic model on the Gold tables (next step), optionally backed by SQL views on the endpoint.
 - Parameterize the Copy Data pipeline per table with a configuration file.
 - Automated tests for the transformation functions.
 
-## 20. References
+## 21. References
 
 - Olist Brazilian E-Commerce Public Dataset (Kaggle): <https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce>
 - Microsoft Learn – Copy activity in Azure Data Factory: <https://learn.microsoft.com/azure/data-factory/copy-activity-overview>
 - Microsoft Learn – OneLake shortcuts: <https://learn.microsoft.com/fabric/onelake/onelake-shortcuts>
 - Microsoft Learn – Create an ADLS Gen2 shortcut: <https://learn.microsoft.com/fabric/onelake/create-adls-shortcut>
+- Microsoft Learn – Lakehouse SQL analytics endpoint: <https://learn.microsoft.com/fabric/data-engineering/lakehouse-sql-analytics-endpoint>
+- Microsoft Learn – SQL analytics endpoint metadata sync: <https://learn.microsoft.com/fabric/data-engineering/sql-analytics-endpoint-metadata-sync>
