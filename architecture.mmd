@@ -1,0 +1,49 @@
+flowchart TB
+    subgraph LOCAL["1 - Local machine (VS Code + Python)"]
+        K["Kaggle Olist dataset<br/>9 original CSV files"] --> P["prepare_olist_batches.py<br/>monthly batches + simulated issues"]
+        P --> M["Source batches + manifest.json<br/>103 CSV files"]
+    end
+
+    subgraph ADLS["2 - ADLS Gen2 (container: retail)"]
+        S["source/<br/>monthly batches + manifest"]
+        B["bronze/<br/>landing copy of 103 CSV files<br/>not read by Notebook 01"]
+        X["silver/ gold/ ops/ serving/<br/>exist, not populated by notebooks"]
+    end
+
+    ADF["Azure Data Factory<br/>pl_retail_source_to_bronze<br/>Copy Data activity"]
+
+    subgraph FABRIC["3 - Microsoft Fabric (workspace + Lakehouse, OneLake)"]
+        SC["Shortcut 'retail'<br/>virtual link to ADLS, no data copied"]
+        N1["Notebook 01<br/>Bronze ingestion"]
+        T1[("bronze_* (9)<br/>managed Delta tables")]
+        N2["Notebook 02<br/>Silver transformation"]
+        T2[("silver_* (9)<br/>quarantine_* (9)")]
+        N3["Notebook 03<br/>Silver to Gold"]
+        T3[("gold_* (11)<br/>4 dims, 2 facts, 5 analytics")]
+        SC --> N1 --> T1 --> N2 --> T2 --> N3 --> T3
+    end
+
+    SQL["SQL analytics endpoint (T-SQL)<br/>read-only queries Q1-Q11 on gold_*"]
+    PBI["Power BI report<br/>next step, not yet built"]
+
+    M -->|"upload"| S
+    S --> ADF
+    ADF -->|"Copy Data"| B
+    S -->|"read via shortcut"| SC
+    T3 --> SQL
+    SQL -.-> PBI
+
+    classDef storage fill:#FFE8CC,stroke:#D9822B,color:#1F2933;
+    classDef adf fill:#D5F2EE,stroke:#1F9D8F,color:#1F2933;
+    classDef compute fill:#D6E6FF,stroke:#2F6FD0,color:#1F2933;
+    classDef tables fill:#DDF3DD,stroke:#3E9B4F,color:#1F2933;
+    classDef link fill:#EBDDFB,stroke:#8A4FD0,color:#1F2933;
+    classDef sql fill:#FFF3C4,stroke:#C99A00,color:#1F2933;
+    classDef planned fill:#F3F3F3,stroke:#8C8C8C,color:#555555,stroke-dasharray: 5 3;
+    class S,B,X storage;
+    class ADF adf;
+    class N1,N2,N3 compute;
+    class T1,T2,T3 tables;
+    class SC link;
+    class SQL sql;
+    class PBI planned;
