@@ -1,6 +1,6 @@
 # SQL analytics on the Gold layer
 
-**File:** [`sql/gold_analytics_queries.sql`](../sql/gold_analytics_queries.sql) — 12 T-SQL queries (Q0–Q11) over the `gold_*` tables.
+**File:** [`sql/gold_analytics_queries.sql`](../SQL/gold_analytics_queries.sql) — 12 T-SQL queries (Q0–Q11) over the `gold_*` tables.
 
 > **Status:** Q1–Q11 were **executed on the Fabric SQL analytics endpoint** and their outputs are recorded below. Q0 (row-count sanity
 > check) is in the query file, but its output was not recorded. Before execution, the query logic was tested on a local copy of the
